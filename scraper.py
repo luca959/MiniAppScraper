@@ -6,8 +6,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 import time
+import json
 
-# Config Chrome anti-detection
 chrome_options = Options()
 chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
@@ -21,88 +21,109 @@ driver.execute_script(
     "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
 )
 
-categories_visited = []
+all_apps_data = []
 
 try:
-    # Vai alla homepage
     driver.get("https://tapps.center/")
 
-    # Wait per caricamento categorie
     wait = WebDriverWait(driver, 20)
     wait.until(
-        EC.presence_of_element_located(
-            (By.CSS_SELECTOR, ".styles_scrollContainer__ICkJv a[href]")
-        )
+        EC.presence_of_element_located((By.CSS_SELECTOR, ".styles_root__CVyj a[href]"))
     )
 
-    print("✅ Categorie caricate!")
+    # 1. CICLO CATEGORIE
+    category_links = driver.find_elements(By.CSS_SELECTOR, ".styles_root__CVyj a[href]")
 
-    # TROVA TUTTE LE CATEGORIE
-    category_links = driver.find_elements(
-        By.CSS_SELECTOR, ".styles_scrollContainer__ICkJv a[href]"
-    )
-    print(f"📂 Trovate {len(category_links)} categorie:")
-
-    for i, cat_link in enumerate(category_links):
+    for cat_idx, cat_link in enumerate(category_links):
         try:
-            # Estrai nome categoria dal testo o href
-            cat_text = cat_link.text.strip()
-            cat_href = cat_link.get_attribute("href")
-            cat_name = cat_text if cat_text else cat_href.split("/")[-1]
-
-            print(f"\n🔄 [{i+1}/{len(category_links)}] Cliccando: '{cat_name}'")
-
-            # SCROLL per renderla visibile
-            driver.execute_script(
-                "arguments[0].scrollIntoView({block: 'center'});", cat_link
+            cat_name = (
+                cat_link.text.strip() or cat_link.get_attribute("href").split("/")[-1]
             )
-            time.sleep(1)
+            print(
+                f"\n📂 [{cat_idx+1}/{len(category_links)}] === {cat_name.upper()} ==="
+            )
 
             # CLICK categoria
+            driver.execute_script("arguments[0].scrollIntoView();", cat_link)
+            time.sleep(0.5)
             cat_link.click()
-            print("   ⏳ Caricando pagina categoria...")
+            time.sleep(2)
 
-            # Wait per caricamento pagina categoria (controlla presenza app o header)
+            # Wait pagina categoria
             wait.until(
-                EC.any_of(
-                    EC.presence_of_element_located(
-                        (By.CSS_SELECTOR, ".styles_applicationCardLink__uYHrK")
-                    ),
-                    EC.presence_of_element_located(
-                        (By.CSS_SELECTOR, ".styles_header__XSRw")
-                    ),
-                )
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".styles_root__fllVc"))
             )
 
-            print(f"   ✅ '{cat_name}' caricata! (pausa 3s)")
-            time.sleep(0.1)  # PAUSA per vedere
+            # 2. CICLO APP dentro .styles_root__fllVc
+            app_links = driver.find_elements(
+                By.CSS_SELECTOR,
+                ".styles_root__fllVc a[href], .styles_root__fllVc [data-app-slug]",
+            )
 
-            # BACK alla homepage
+            print(f"   📱 Trovate {len(app_links)} app")
+
+            for app_idx, app_link in enumerate(
+                app_links[:5]
+            ):  # 5 per test, poi toglilo
+                try:
+                    # Estrai dati APP
+                    app_name_elem = app_link.find_element(
+                        By.CSS_SELECTOR, "h3, [class*='name'], [class*='title']"
+                    )
+                    app_name = app_name_elem.text.strip()
+                    app_url = app_link.get_attribute("href")
+
+                    print(f"     🔗 [{app_idx+1}] {app_name[:40]}...")
+
+                    # CLICK app
+                    driver.execute_script("arguments[0].scrollIntoView();", app_link)
+                    time.sleep(0.3)
+                    app_link.click()
+                    time.sleep(1.5)  # Wait pagina app
+
+                    # Salva dati
+                    all_apps_data.append(
+                        {"category": cat_name, "app_name": app_name, "app_url": app_url}
+                    )
+
+                    # BACK alla lista categoria
+                    driver.back()
+                    time.sleep(1)
+                    wait.until(
+                        EC.presence_of_element_located(
+                            (By.CSS_SELECTOR, ".styles_root__fllVc")
+                        )
+                    )
+
+                except Exception as e:
+                    print(f"     ❌ Errore app {app_idx}: {e}")
+                    driver.back()
+                    time.sleep(1)
+                    continue
+
+            # BACK alla homepage dopo TUTTE le app della categoria
+            print(f"   🔙 BACK home da {cat_name}")
             driver.back()
-            print("   🔙 BACK alla homepage...")
-
-            # Wait per tornare alle categorie
             wait.until(
                 EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, ".styles_scrollContainer__ICkJv a[href]")
+                    (By.CSS_SELECTOR, ".styles_root__CVyj a[href]")
                 )
             )
             time.sleep(1)
 
-            categories_visited.append(cat_name)
-
         except Exception as e:
-            print(f"   ❌ Errore '{cat_name}': {e}")
-            # Se si blocca, BACK forzato
+            print(f"❌ Errore categoria {cat_name}: {e}")
             driver.back()
             time.sleep(2)
             continue
 
-    print(f"\n🎉 Visitato {len(categories_visited)}/{len(category_links)} categorie:")
-    for cat in categories_visited:
-        print(f"  - {cat}")
+    # SALVA DATASET
+    with open("complete_telegram_apps.json", "w", encoding="utf-8") as f:
+        json.dump(all_apps_data, f, ensure_ascii=False, indent=2)
 
-    input("\nPremi Enter per chiudere il browser...")
+    print(f"\n🎉 COMPLETATO! {len(all_apps_data)} app estratte e salvate!")
+
+    input("Premi Enter per chiudere...")
 
 finally:
     driver.quit()
