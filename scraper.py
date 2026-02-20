@@ -7,6 +7,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 import time
 import csv
+import os
 
 chrome_options = Options()
 chrome_options.add_argument("--no-sandbox")
@@ -23,6 +24,24 @@ driver.execute_script(
 
 categories_visited = []
 apps_data = []
+csv_filename = "tapps_apps_live.csv"
+
+# 📝 INIT CSV (append mode)
+fieldnames = [
+    "categoria",
+    "cat_url",
+    "app_name",
+    "card_url",
+    "before_open_url",
+    "new_tab_open_url",
+    "final_url",
+]
+file_exists = os.path.isfile(csv_filename)
+with open(csv_filename, "a", newline="", encoding="utf-8") as f:
+    writer = csv.DictWriter(f, fieldnames=fieldnames)
+    if not file_exists:
+        writer.writeheader()
+        print(f"✅ CSV inizializzato: {csv_filename}")
 
 try:
     driver.get("https://tapps.center/")
@@ -34,7 +53,6 @@ try:
     )
     print("✅ Iniziato!")
 
-    # 🚀 ABILITA NEW TAB HANDLING
     original_window = driver.current_window_handle
     all_windows = driver.window_handles
 
@@ -59,7 +77,7 @@ try:
             driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'});", cat_link
             )
-            time.sleep(1)
+            time.sleep(0.5)
             cat_link.click()
 
             wait.until(
@@ -85,56 +103,42 @@ try:
 
                 # Click app card
                 driver.execute_script("arguments[0].click();", app_link)
-                time.sleep(3)
+                time.sleep(0.5)
 
-                # 🎯 OPEN BUTTON
+                # OPEN BUTTON
                 open_xpath = (
                     "/html/body/main/div[1]/div[2]/div[1]/div[2]/div[2]/button[1]/span"
                 )
                 new_tab_url = ""
+                before_open_url = driver.current_url
 
                 try:
-                    open_btn = WebDriverWait(driver, 5).until(
+                    open_btn = WebDriverWait(driver, 1).until(
                         EC.element_to_be_clickable((By.XPATH, open_xpath))
                     )
-
-                    # 📝 SALVA URL ATTUALE PRIMA
-                    before_open_url = driver.current_url
-
-                    # CLICK OPEN
                     driver.execute_script("arguments[0].click();", open_btn)
-                    print("       ✅ OPEN cliccato!")
-                    time.sleep(3)
+                    print("       ✅ OPEN!")
+                    time.sleep(0.5)
 
-                    # 🔑 CATTURA NUOVA TAB
+                    # CATTURA NUOVA TAB
                     all_windows_after = driver.window_handles
-
-                    # Se si apre nuova tab
                     if len(all_windows_after) > len(all_windows):
-                        # Switch alla nuova tab
                         new_window = [
                             w for w in all_windows_after if w != original_window
                         ][0]
                         driver.switch_to.window(new_window)
-
-                        # SALVA URL NUOVA PAGINA 🎉
                         new_tab_url = driver.current_url
-                        print(f"       🌐 NUOVA TAB URL: {new_tab_url}")
-
-                        # Chiudi nuova tab e torna originale
+                        print(f"       🌐 NEW TAB: {new_tab_url}")
                         driver.close()
                         driver.switch_to.window(original_window)
-
                     else:
-                        # Se resta stessa tab
                         new_tab_url = driver.current_url
-                        print(f"       📄 STESSA TAB URL: {new_tab_url}")
 
                 except Exception as open_e:
-                    print(f"       ⚠️ OPEN error: {str(open_e)[:50]}")
+                    print(f"       ⚠️ OPEN: {str(open_e)[:40]}")
                     new_tab_url = driver.current_url
 
-                # Popup handling (stessa tab)
+                # Popup
                 popup_closed = False
                 popup_selectors = [
                     "//button[@aria-label='Close'] | //button[contains(@class,'close')]",
@@ -145,44 +149,49 @@ try:
 
                 for xpath_sel in popup_selectors:
                     try:
-                        close_btn = WebDriverWait(driver, 2).until(
+                        close_btn = WebDriverWait(driver, 0.5).until(
                             EC.element_to_be_clickable((By.XPATH, xpath_sel))
                         )
                         driver.execute_script("arguments[0].click();", close_btn)
                         print("       ✅ Popup chiuso!")
                         popup_closed = True
-                        time.sleep(1)
+                        time.sleep(0.5)
                         break
                     except:
                         continue
 
                 # BACK
                 driver.back()
-                time.sleep(2)
+                time.sleep(0.5)
                 wait.until(
                     EC.presence_of_element_located(
                         (By.CSS_SELECTOR, ".styles_applicationCardLink__uYHrK")
                     )
                 )
 
-                # 💾 SALVA TUTTI URL
-                apps_data.append(
-                    {
-                        "categoria": cat_name,
-                        "cat_url": cat_url,
-                        "app_name": app_name,
-                        "card_url": card_url,
-                        "before_open_url": before_open_url,
-                        "new_tab_open_url": new_tab_url,  # 🎉 QUESTO È QUELLO CHE VUOI!
-                        "final_url": driver.current_url,
-                    }
-                )
+                # 🚀 SALVA APP NEL CSV SUBITO!
+                app_row = {
+                    "categoria": cat_name,
+                    "cat_url": cat_url,
+                    "app_name": app_name,
+                    "card_url": card_url,
+                    "before_open_url": before_open_url,
+                    "new_tab_open_url": new_tab_url,
+                    "final_url": driver.current_url,
+                }
+
+                with open(csv_filename, "a", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    writer.writerow(app_row)
+
+                apps_data.append(app_row)
+                print(f"     ✅ APP SALVATA #{len(apps_data)}: {new_tab_url[:80]}...")
 
                 app_index += 1
 
             print(f"   ✅ {app_index} app")
             driver.back()
-            time.sleep(2)
+            time.sleep(0.5)
             wait.until(
                 EC.presence_of_element_located(
                     (By.CSS_SELECTOR, ".styles_scrollContainer__ICkJv a[href]")
@@ -193,30 +202,11 @@ try:
         except Exception as e:
             print(f"   ❌: {str(e)[:60]}")
             driver.back()
-            time.sleep(3)
+            time.sleep(0.5)
             continue
 
-    # CSV
-    print(f"\n🎉 {len(apps_data)} app salvate!")
-    if apps_data:
-        with open("tapps_apps_perfect.csv", "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(
-                f,
-                fieldnames=[
-                    "categoria",
-                    "cat_url",
-                    "app_name",
-                    "card_url",
-                    "before_open_url",
-                    "new_tab_open_url",
-                    "final_url",
-                ],
-            )
-            writer.writeheader()
-            writer.writerows(apps_data)
-        print(
-            "✅ 'tapps_apps_perfect.csv' - new_tab_open_url è quello della nuova pagina!"
-        )
+    print(f"\n🎉 TOTALE: {len(apps_data)} app salvate live!")
+    print(f"📄 File: {csv_filename}")
 
     input("\nEnter...")
 
