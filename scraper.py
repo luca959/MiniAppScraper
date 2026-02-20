@@ -6,7 +6,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 import time
-import json
+import csv
 
 chrome_options = Options()
 chrome_options.add_argument("--no-sandbox")
@@ -21,109 +21,204 @@ driver.execute_script(
     "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
 )
 
-all_apps_data = []
+categories_visited = []
+apps_data = []
 
 try:
     driver.get("https://tapps.center/")
-
     wait = WebDriverWait(driver, 20)
     wait.until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, ".styles_root__CVyj a[href]"))
+        EC.presence_of_element_located(
+            (By.CSS_SELECTOR, ".styles_scrollContainer__ICkJv a[href]")
+        )
+    )
+    print("✅ Iniziato!")
+
+    # 🚀 ABILITA NEW TAB HANDLING
+    original_window = driver.current_window_handle
+    all_windows = driver.window_handles
+
+    category_links = driver.find_elements(
+        By.CSS_SELECTOR, ".styles_scrollContainer__ICkJv a[href]"
     )
 
-    # 1. CICLO CATEGORIE
-    category_links = driver.find_elements(By.CSS_SELECTOR, ".styles_root__CVyj a[href]")
-
-    for cat_idx, cat_link in enumerate(category_links):
+    for i in range(len(category_links)):
         try:
-            cat_name = (
-                cat_link.text.strip() or cat_link.get_attribute("href").split("/")[-1]
+            category_links = driver.find_elements(
+                By.CSS_SELECTOR, ".styles_scrollContainer__ICkJv a[href]"
             )
-            print(
-                f"\n📂 [{cat_idx+1}/{len(category_links)}] === {cat_name.upper()} ==="
-            )
+            if i >= len(category_links):
+                break
 
-            # CLICK categoria
-            driver.execute_script("arguments[0].scrollIntoView();", cat_link)
-            time.sleep(0.5)
-            cat_link.click()
-            time.sleep(2)
+            cat_link = category_links[i]
+            cat_name = cat_link.text.strip() or f"Cat_{i+1}"
+            cat_url = cat_link.get_attribute("href") or ""
 
-            # Wait pagina categoria
-            wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, ".styles_root__fllVc"))
-            )
+            print(f"\n🔄 [{i+1}] '{cat_name}'")
 
-            # 2. CICLO APP dentro .styles_root__fllVc
-            app_links = driver.find_elements(
-                By.CSS_SELECTOR,
-                ".styles_root__fllVc a[href], .styles_root__fllVc [data-app-slug]",
-            )
-
-            print(f"   📱 Trovate {len(app_links)} app")
-
-            for app_idx, app_link in enumerate(
-                app_links[:5]
-            ):  # 5 per test, poi toglilo
-                try:
-                    # Estrai dati APP
-                    app_name_elem = app_link.find_element(
-                        By.CSS_SELECTOR, "h3, [class*='name'], [class*='title']"
-                    )
-                    app_name = app_name_elem.text.strip()
-                    app_url = app_link.get_attribute("href")
-
-                    print(f"     🔗 [{app_idx+1}] {app_name[:40]}...")
-
-                    # CLICK app
-                    driver.execute_script("arguments[0].scrollIntoView();", app_link)
-                    time.sleep(0.3)
-                    app_link.click()
-                    time.sleep(1.5)  # Wait pagina app
-
-                    # Salva dati
-                    all_apps_data.append(
-                        {"category": cat_name, "app_name": app_name, "app_url": app_url}
-                    )
-
-                    # BACK alla lista categoria
-                    driver.back()
-                    time.sleep(1)
-                    wait.until(
-                        EC.presence_of_element_located(
-                            (By.CSS_SELECTOR, ".styles_root__fllVc")
-                        )
-                    )
-
-                except Exception as e:
-                    print(f"     ❌ Errore app {app_idx}: {e}")
-                    driver.back()
-                    time.sleep(1)
-                    continue
-
-            # BACK alla homepage dopo TUTTE le app della categoria
-            print(f"   🔙 BACK home da {cat_name}")
-            driver.back()
-            wait.until(
-                EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, ".styles_root__CVyj a[href]")
-                )
+            driver.execute_script(
+                "arguments[0].scrollIntoView({block: 'center'});", cat_link
             )
             time.sleep(1)
+            cat_link.click()
 
-        except Exception as e:
-            print(f"❌ Errore categoria {cat_name}: {e}")
+            wait.until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, ".styles_applicationCardLink__uYHrK")
+                )
+            )
+
+            # Loop app
+            app_index = 0
+            while True:
+                app_links = driver.find_elements(
+                    By.CSS_SELECTOR, ".styles_applicationCardLink__uYHrK"
+                )
+                if app_index >= len(app_links):
+                    break
+
+                app_link = app_links[app_index]
+                app_name = (app_link.text.strip() or f"App_{app_index+1}")[:80]
+                card_url = app_link.get_attribute("href") or ""
+
+                print(f"     📱 [{app_index+1}] '{app_name}'")
+
+                # Click app card
+                driver.execute_script("arguments[0].click();", app_link)
+                time.sleep(3)
+
+                # 🎯 OPEN BUTTON
+                open_xpath = (
+                    "/html/body/main/div[1]/div[2]/div[1]/div[2]/div[2]/button[1]/span"
+                )
+                new_tab_url = ""
+
+                try:
+                    open_btn = WebDriverWait(driver, 5).until(
+                        EC.element_to_be_clickable((By.XPATH, open_xpath))
+                    )
+
+                    # 📝 SALVA URL ATTUALE PRIMA
+                    before_open_url = driver.current_url
+
+                    # CLICK OPEN
+                    driver.execute_script("arguments[0].click();", open_btn)
+                    print("       ✅ OPEN cliccato!")
+                    time.sleep(3)
+
+                    # 🔑 CATTURA NUOVA TAB
+                    all_windows_after = driver.window_handles
+
+                    # Se si apre nuova tab
+                    if len(all_windows_after) > len(all_windows):
+                        # Switch alla nuova tab
+                        new_window = [
+                            w for w in all_windows_after if w != original_window
+                        ][0]
+                        driver.switch_to.window(new_window)
+
+                        # SALVA URL NUOVA PAGINA 🎉
+                        new_tab_url = driver.current_url
+                        print(f"       🌐 NUOVA TAB URL: {new_tab_url}")
+
+                        # Chiudi nuova tab e torna originale
+                        driver.close()
+                        driver.switch_to.window(original_window)
+
+                    else:
+                        # Se resta stessa tab
+                        new_tab_url = driver.current_url
+                        print(f"       📄 STESSA TAB URL: {new_tab_url}")
+
+                except Exception as open_e:
+                    print(f"       ⚠️ OPEN error: {str(open_e)[:50]}")
+                    new_tab_url = driver.current_url
+
+                # Popup handling (stessa tab)
+                popup_closed = False
+                popup_selectors = [
+                    "//button[@aria-label='Close'] | //button[contains(@class,'close')]",
+                    ".modal-close",
+                    "//svg[@aria-label='close']",
+                    "//button[.//span[text()='✕' or text()='X']]",
+                ]
+
+                for xpath_sel in popup_selectors:
+                    try:
+                        close_btn = WebDriverWait(driver, 2).until(
+                            EC.element_to_be_clickable((By.XPATH, xpath_sel))
+                        )
+                        driver.execute_script("arguments[0].click();", close_btn)
+                        print("       ✅ Popup chiuso!")
+                        popup_closed = True
+                        time.sleep(1)
+                        break
+                    except:
+                        continue
+
+                # BACK
+                driver.back()
+                time.sleep(2)
+                wait.until(
+                    EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, ".styles_applicationCardLink__uYHrK")
+                    )
+                )
+
+                # 💾 SALVA TUTTI URL
+                apps_data.append(
+                    {
+                        "categoria": cat_name,
+                        "cat_url": cat_url,
+                        "app_name": app_name,
+                        "card_url": card_url,
+                        "before_open_url": before_open_url,
+                        "new_tab_open_url": new_tab_url,  # 🎉 QUESTO È QUELLO CHE VUOI!
+                        "final_url": driver.current_url,
+                    }
+                )
+
+                app_index += 1
+
+            print(f"   ✅ {app_index} app")
             driver.back()
             time.sleep(2)
+            wait.until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, ".styles_scrollContainer__ICkJv a[href]")
+                )
+            )
+            categories_visited.append(cat_name)
+
+        except Exception as e:
+            print(f"   ❌: {str(e)[:60]}")
+            driver.back()
+            time.sleep(3)
             continue
 
-    # SALVA DATASET
-    with open("complete_telegram_apps.json", "w", encoding="utf-8") as f:
-        json.dump(all_apps_data, f, ensure_ascii=False, indent=2)
+    # CSV
+    print(f"\n🎉 {len(apps_data)} app salvate!")
+    if apps_data:
+        with open("tapps_apps_perfect.csv", "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "categoria",
+                    "cat_url",
+                    "app_name",
+                    "card_url",
+                    "before_open_url",
+                    "new_tab_open_url",
+                    "final_url",
+                ],
+            )
+            writer.writeheader()
+            writer.writerows(apps_data)
+        print(
+            "✅ 'tapps_apps_perfect.csv' - new_tab_open_url è quello della nuova pagina!"
+        )
 
-    print(f"\n🎉 COMPLETATO! {len(all_apps_data)} app estratte e salvate!")
-
-    input("Premi Enter per chiudere...")
+    input("\nEnter...")
 
 finally:
     driver.quit()
